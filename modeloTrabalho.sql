@@ -26,8 +26,8 @@ CREATE TABLE professor (
 
 CREATE TABLE curso (
     nome  character varying not null,
-    professor_coordenador bigint not null,
-    vice_coordenador      bigint not null,
+    professor_coordenador bigint not null unique,
+    vice_coordenador  bigint not null unique,
     constraint pk_curso primary key (nome,professor_coordenador),
     constraint fk_coordenador foreign key (professor_coordenador) references professor(matricula),
     constraint fk_vice foreign key (vice_coordenador) references professor(matricula)
@@ -114,7 +114,7 @@ CREATE TABLE leciona_em(
                       
 create or replace function professor_coordenador_nao_pode_ser_vice() returns trigger as $$
 begin
-  if (select matricula from professor 
+  if (select professor_coordenador from professor 
        inner join curso on professor.matricula = curso.coordenador) == 
      (select vice_coordenador from professor 
         inner join curso on professor.matricula = curso.vice_coordenador) then
@@ -122,4 +122,4 @@ begin
   end if;
   return old;
 end;
-$$ language plpgsql;
+$$ language plpgsql; --falta criar o trigger correspondente
