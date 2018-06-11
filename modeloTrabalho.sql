@@ -1,4 +1,5 @@
-﻿
+﻿-------------------------------------- DROPS --------------------------------------------------------------
+
 DROP TABLE IF EXISTS professor CASCADE;
 
 DROP TABLE IF EXISTS sala CASCADE;
@@ -17,91 +18,119 @@ DROP TABLE IF EXISTS inscricoes cascade;
 
 DROP TABLE IF EXISTS leciona_em cascade;
 
+-------------------------------------- RELACIONAMENTOS --------------------------------------------------------------
+
 CREATE TABLE professor (
-    matricula bigint not null,
-    nome character varying not null,
-    email character varying not null,
-    CONSTRAINT pk_professor PRIMARY KEY(matricula)
+	id 			SERIAL,
+    matricula 	bigint not null, 		-- 1231312312
+    nome 		varchar(100) not null, 	-- Luiz André
+    email 		varchar(100) not null, 	-- luiz@andre
+    CONSTRAINT pk_professor PRIMARY KEY(id)
 );
 
 CREATE TABLE curso (
-    nome  character varying not null,
-    professor_coordenador bigint not null unique,
-    vice_coordenador  bigint not null unique,
-    constraint pk_curso primary key (nome,professor_coordenador),
-    constraint fk_coordenador foreign key (professor_coordenador) references professor(matricula),
-    constraint fk_vice foreign key (vice_coordenador) references professor(matricula)
+	id 						SERIAL, 					-- 1
+    nome  					character varying not null, -- Ciência da Computação
+    professor_coordenador 	bigint not null unique, 	-- Ro7
+    vice_coordenador  		bigint not null unique, 	-- Aline
+    constraint pk_curso PRIMARY KEY(id),
+    constraint fk_coordenador foreign key (professor_coordenador) references professor(id),
+    constraint fk_vice foreign key (vice_coordenador) references professor(id)
 );
---com essa tabela, é possivel colocar umas constraints extras como: um coordenador não pode lecionar mais de duas disciplinas, um coordenador não pode ser o vice (e vice versa). Ganhamos mais algumas constraints (opcional).
-
 
 CREATE TABLE sala(
-    numero int not null,
-    bloco character varying not null,
-    constraint pk_sala primary key (numero)
+	id		SERIAL,
+    numero 	int not null, 			-- 217
+    bloco 	character(3) not null, 	-- IC2
+	UNIQUE (numero, bloco), 		-- Não pode ter igual
+    constraint pk_sala PRIMARY KEY(id)
 );
+-- Ver função CHECK com Mc Sapão
+
 
 CREATE TABLE disciplina (
-    cod_disciplina character varying not null,
-    descricao character varying,
-    ementa character varying not null,
-    cargaHoraria integer not null,
-    constraint pk_disciplina primary key (cod_disciplina)
+	id 				SERIAL, 					-- 1
+    cod_disciplina 	character varying not null, -- TCC00286
+    nome 			character varying, 			-- Banco de Dados 2
+    ementa 			character varying not null, -- Aprende a criar triggers e procedures
+    cargaHoraria 	integer not null, 			-- 40
+    constraint pk_disciplina PRIMARY KEY (id)
 );
 
 CREATE TABLE turma (
-    codigo_turma character varying not null,
-    professor  bigint not null,
-    disciplina character varying not null, --isso aqui na verdade vai apontar pro relacionamento entre disciplina e curso. disciplna que tem turma ou turma que tem disciplina?
-    alunos_inscritos integer,
-    constraint fk_professor foreign key (professor) references professor(matricula),
-    constraint pk_turma primary key (codigo_turma) --tá errado isso aqui
-    --xabuzão aqui; o horário da aula (agendamento) é armazenado em aula, como fazer uma turma única então
+	id 				SERIAL, 				-- 1
+    codigo_turma 	character(2) not null, 	-- A1
+    professor		integer not null, 		-- Luiz André
+    disciplina 		integer not null, 		-- 12312 
+    UNIQUE (codigo_turma, professor, disciplina),
+	constraint fk_professor foreign key (professor) references professor(id),
+	constraint fk_disciplina foreign key (disciplina) references disciplina(id),
+	constraint pk_turma PRIMARY KEY (id)
 );
+
+-- Guardar histórico entre TURMA-OFERECE - Ver com Mc Sapão
+CREATE TABLE oferece (
+	id 					SERIAL,
+	semestre 			character(5) not null,
+	turma 				integer not null,
+	disciplina 			integer not null,
+	vagas 				integer not null default 10,
+	alunos_inscritos 	integer not null default 0,
+	constraint fk_turma foreign key (turma) references turma(id),
+	constraint fk_disciplina foreign key (disciplina) references disciplina(id),
+	constraint pk_oferece PRIMARY KEY (id)
+);
+-- add trigger para atualizar alunos_inscritos automaticamente
 
 
 CREATE TABLE aula (
-    turma character varying not null,
-	--dias character varying, --a gente pode também representar hora_inicio e hora_fim por varchar, ex. segunda e sexta 9-11 
-    hora_inicio timestamp not null,
-    hora_fim timestamp not null,
-    sala int not null,
-    constraint pk_aula primary key (turma,hora_inicio,hora_fim),
-    constraint fk_turma foreign key (turma) references turma(codigo_turma),
-    constraint fk_sala foreign key (sala) references sala(numero)
+	id			SERIAL,
+    turma 		integer not null,
+	dia			character(3) not null,
+    hora_inicio timestamp not null, 	-- Integer é vida!
+    hora_fim 	timestamp not null,
+    sala 		integer not null,
+    constraint pk_aula primary key (id),
+    constraint fk_turma foreign key (turma) references turma(id),
+    constraint fk_sala foreign key (sala) references sala(id)
 );
+-- INSERT INTO AULA VALUES(turma,......)
 
 CREATE TABLE aluno (
-    matricula bigint not null,
-    nome character varying not null,
-    email character varying not null,
-    telefone varchar(9) not null,
+    matricula 	bigint not null unique, 	-- 214031126
+    nome 		varchar(50) not null, 		-- Batman
+    email 		varchar(50) not null, 		-- batman@id.uff.br
+    telefone 	varchar(9) not null, 		-- 99999999
     constraint pk_aluno primary key (matricula)
     
 );
---relacionamentos
 
-CREATE TABLE inscricoes(
-    matricula_aluno bigint not null,
-    codigo_turma character varying not null,
-    constraint fk_aluno foreign key (matricula_aluno) references aluno(matricula),
-    constraint fk_turma foreign key (codigo_turma) references turma(codigo_turma), --pelo modelo desenhado com o professor, um aluno se inscreve em uma turma, e não em uma disciplina (eu acho estranho mas vamo ver).
-    constraint pk_inscricoes primary key (matricula_aluno,codigo_turma)
+-- Semestre nas duas tabelas?
+-- Como garantir a inscrição de um aluno ou não de outro?
+-- Talvez remover INSCRIÇÕES e SOLICITAÇÕES por conta do histórico do aluno e CR. Como calcular?
+CREATE TABLE inscricoes (
+	id					SERIAL,
+	semestre 			character(5) not null, 	-- 2018.1
+    matricula_aluno 	bigint not null, 		-- 2140131126
+    codigo_turma 		integer not null, 		-- 1 
+    unique (semestre, matricula_aluno, codigo_turma),
+	constraint fk_aluno foreign key (matricula_aluno) references aluno(matricula),
+    constraint fk_turma foreign key (codigo_turma) references turma(id),
+    constraint pk_inscricoes primary key (id)
 );
 
 CREATE TABLE leciona_em(
-    professor integer not null,
-    turma character varying not null,
-    constraint fk_professor foreign key (professor) references professor(matricula),
-    constraint fk_professor_turma foreign key (turma) references turma(codigo_turma), 
-    constraint pk_leciona_em primary key (professor,turma)
+	id 			SERIAL,
+    professor 	integer not null,		-- 1
+    turma 		integer not null, 		-- 1
+	semestre 	character(5) not null, 	-- 2018.1
+	unique (professor, turma, semestre),
+    constraint fk_professor foreign key (professor) references professor(id),
+    constraint fk_professor_turma foreign key (turma) references turma(id), 
+    constraint pk_leciona_em primary key (id)
 );
 
---falta o relacionamento "inscrito", "oferece" e a tabela "solicitações" que segura o aluno que se inscreve na turma antes dele ser cadastrado lá. 
---Tem que ver também atributos como "dia e hora na qual uma aula acontece", dentre outros.
-
 -------------------------------------- TRIGGERS --------------------------------------------------------------
-
 
 --A ideia do trigger abaixo é catar se o professor possui mais de duas turmas em um mesmo horário
 --create or replace function professor_possui_duas_aulas_mesmo_horário returns trigger as $$
