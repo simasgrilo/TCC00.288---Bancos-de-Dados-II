@@ -252,3 +252,21 @@ begin
 
 end;
 $$ language plpgsql;
+
+--Um professor só pode lecionar uma turma à qual ele tenha licença para lecionar:
+create or replace function professor_da_aula_de() returns trigger as $$
+begin
+   if not exists (select disciplinas_lecionaveis.disciplina 
+                        from disciplinas_lecionaveis full outer join
+                        turmas on (turmas.professor = disciplinas_lecionaveis.professor
+                               and turmas.disciplina = disciplinas_lecionaveis.disciplina)
+                        where disciplinas_lecionaveis.id = new.id and disciplinas_lecionaveis.disciplina = new.disciplina) then
+                  raise exception 'O professor não pode lecionar a disciplina em questão!';
+    end if;           
+end;
+$$ language plpgsql;
+
+create trigger professor_so_pode_dar_aula_do_que_ele_pode_dar_aula before insert or update --esse nome foi de zoas mesmo
+       on turmas
+       for each row
+       execute procedure professor_da_aula_de();
