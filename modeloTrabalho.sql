@@ -29,6 +29,7 @@ CREATE TABLE DISCIPLINAS (
     CONSTRAINT pk_disciplina PRIMARY KEY (id)
 );
 
+
 CREATE TABLE PROFESSORES (
     id          serial,
     matricula   bigint not null unique,         -- 1231312312
@@ -37,6 +38,7 @@ CREATE TABLE PROFESSORES (
     CONSTRAINT pk_professor PRIMARY KEY(id)
 );
 
+
 CREATE TABLE DISCIPLINAS_LECIONAVEIS (
     id  serial,
     professor integer not null,
@@ -44,6 +46,7 @@ CREATE TABLE DISCIPLINAS_LECIONAVEIS (
     UNIQUE (professor, disciplina),
     CONSTRAINT pk_lecionavel PRIMARY KEY (id)
 );
+
 
 CREATE TABLE CURSOS (
     id                      serial,                     -- 1
@@ -55,6 +58,7 @@ CREATE TABLE CURSOS (
     CONSTRAINT fk_vice FOREIGN KEY (vice_coordenador) REFERENCES PROFESSORES(id)
 );
 
+
 CREATE TABLE DISCIPLINAS_OFERECIDAS (
     id          serial,
     curso       integer not null,   -- 214
@@ -63,6 +67,7 @@ CREATE TABLE DISCIPLINAS_OFERECIDAS (
     CONSTRAINT pk_discip_oferecida PRIMARY KEY (id)
 );
 
+
 CREATE TABLE SALAS (
     id      serial,
     numero  int not null,           -- 217
@@ -70,6 +75,7 @@ CREATE TABLE SALAS (
     UNIQUE (numero, bloco),         -- Não pode ter igual
     CONSTRAINT pk_sala PRIMARY KEY(id)
 );
+
 
 CREATE TABLE TURMAS (
     id              serial,                 -- 1
@@ -81,6 +87,7 @@ CREATE TABLE TURMAS (
     CONSTRAINT fk_disciplina foreign key (disciplina) references DISCIPLINAS(id),
     CONSTRAINT pk_turma PRIMARY KEY (id)
 );
+
 
 CREATE TABLE OFERTAS (
     id                  serial,
@@ -96,6 +103,26 @@ CREATE TABLE OFERTAS (
 );
 
 
+CREATE TABLE ALUNOS (
+    id          serial,
+    matricula   bigint not null unique,     -- 214031126
+    curso       integer not null,           -- 214
+    nome        varchar(50) not null,       -- Batman
+    email       varchar(50) not null,       -- batman@id.uff.br
+    telefone    varchar(9) not null,        -- 99999999
+    CONSTRAINT pk_aluno PRIMARY KEY (id)
+);
+
+
+CREATE TABLE ALUNOS_INSCRITOS (
+    id  serial,
+    aluno   integer not null,
+    oferta  integer not null,
+    UNIQUE (aluno, oferta),
+    CONSTRAINT pk_inscricao PRIMARY KEY (id)
+);
+
+
 CREATE TABLE AULAS (
     id          serial,
     turma       integer not null,       -- 123
@@ -108,17 +135,6 @@ CREATE TABLE AULAS (
     CONSTRAINT pk_aula PRIMARY KEY (id)
 );
 
-
-CREATE TABLE ALUNOS (
-    id          serial,
-    matricula   bigint not null unique,     -- 214031126
-    curso       integer not null,           -- 214
-    nome        varchar(50) not null,       -- Batman
-    email       varchar(50) not null,       -- batman@id.uff.br
-    telefone    varchar(9) not null,        -- 99999999
-    CONSTRAINT pk_aluno PRIMARY KEY (id)
-    
-);
 
 -- Semestre nas duas tabelas?
 -- Como garantir a inscrição de um aluno ou não de outro?
