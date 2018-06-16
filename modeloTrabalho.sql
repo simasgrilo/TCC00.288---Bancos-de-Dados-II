@@ -181,11 +181,11 @@ create trigger prof_coordenador_nao_pode_ser_vice before insert or update
 --                          (inner join professor on turmas.professor = professor.id)
 --                           )
 
--- Um professor não pode ter duas turmas no mesmo horário
 
+-- Um professor não pode ter duas turmas no mesmo horário
 create or replace function prof_nao_tem_duas_turmas_mesmo_horario() returns trigger as $$
 begin
-  if (select count(*) from aulas inner join turmas
+  if (select count(*) from aulas left outer join turmas
                            on aulas.turma = turmas.id
                            inner join professores
                            on turma.professor = professores.id
@@ -203,12 +203,12 @@ $$ language plpgsql;
 --       execute procedure prof_nao_tem_duas_turmas_mesmo_horario()
 
 --Um aluno não pode ter duas disciplinas iguais no mesmo semestre (não pode estar cursando a mesma oferta da disciplina duas vezes no mesmo semestre)
-
+-- tá escaralhado
 create or replace function aluno_nao_duas_disc_mesmo_sem() returns trigger as $$
 begin
    if (select count(*) from alunos_inscritos inner join ofertas
                      on alunos_inscritos.oferta == ofertas.id
-                     inner join turmas
+                     right outer join turmas
                      on ofertas.turma == turmas.id
               group by semestre,disciplina) > 1 then
               raise exception 'Um aluno não pode cursar a mesma disciplina duas vezes no mesmo semestre!';
@@ -221,5 +221,34 @@ create trigger aluno_sem_disc_iguais_mesmo_sem before insert or update
        on alunos_inscritos
        for each row
        execute procedure aluno_nao_duas_disc_mesmo_sem();
+       
+--Uma oferta de disciplina não pode conter mais do que o número máximo permitido de alunos inscritos.
+create or replace function alunos_inscritos_na_oferta() returns trigger as $$
+begin
+  -- if (TG_OP == 'UPDATE') then 
+     if (select ofertas.vagas from ofertas left outer join alunos_inscritos
+                on alunos_inscritos.oferta == ofertas.id) < (select ofertas.alunos_inscritos from ofertas left outer join alunos_inscritos
+                on alunos_inscritos.oferta) then
+         raise exception 'A quantidade de alunos inscritos ultrapassa a quantidade de vagas na turma';
+     end if;
+   --else if (TG_OP == 'INSERT')
+   return NULL; 
+end;
+$$ language plpgsql;
 
- 
+create trigger qte_alunos_inscritos_oferta before insert or update
+       on ofertas
+       for each row
+       execute procedure alunos_inscritos_na_oferta();
+
+--PROCEDURE 1: ao inserir um aluno em uma oferta de uma disciplina, adicionar em um o número de alunos inscritos naquela oferta. Pra ele vai ser meio besta mas eu tô com 0 ideias. Real sei nem se funciona k
+create or replace function inscreve_aluno(aluno integer, oferta integer) returns void as $$
+begin
+  insert into  ofertas
+  values (aluno,oferta);
+  update ofertas 
+  set alunos_inscritos = alunos_inscritos + 1
+  where oferta.id = oferta;
+
+end;
+$$ language plpgsql;
