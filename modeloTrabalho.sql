@@ -91,11 +91,11 @@ CREATE TABLE TURMAS (
 
 CREATE TABLE OFERTAS (
     id                  serial,
-    semestre            character(5) not null,
-    disciplina          integer not null,
-    turma               integer not null,
-    vagas               integer not null default 30,
-    alunos_inscritos    integer not null default 0,
+    semestre            character(5) not null,          -- 2018.1
+    disciplina          integer not null,               -- 123
+    turma               integer not null,               -- 1234
+    vagas               integer not null default 30,    -- 30
+    alunos_inscritos    integer not null default 0,     -- 20
     UNIQUE(semestre, disciplina, turma),
     CONSTRAINT fk_turma FOREIGN KEY (turma) REFERENCES TURMAS(id),
     CONSTRAINT fk_disciplina FOREIGN KEY (disciplina) REFERENCES DISCIPLINAS(id),
