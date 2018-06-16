@@ -196,16 +196,30 @@ begin
 end;
 $$ language plpgsql;
 
-create trigger prof_duas_turmas_mesmo_horario before insert or update
-       on cursos
-       for each row
-       execute procedure prof_nao_tem_duas_turmas_mesmo_horario()
+--Um professor não pode ter duas turmas no mesmo horário:
+--create trigger prof_duas_turmas_mesmo_horario before insert or update
+--      on cursos
+--       for each row
+--       execute procedure prof_nao_tem_duas_turmas_mesmo_horario()
 
 --Um aluno não pode ter duas disciplinas iguais no mesmo semestre (não pode estar cursando a mesma oferta da disciplina duas vezes no mesmo semestre)
+
 create or replace function aluno_nao_duas_disc_mesmo_sem() returns trigger as $$
 begin
-   if (select * from alunos_inscritos inner join )-- oloco meu ao vivasso
+   if (select count(*) from alunos_inscritos inner join ofertas
+                     on alunos_inscritos.oferta == ofertas.id
+                     inner join turmas
+                     on ofertas.turma == turmas.id
+              group by semestre,disciplina) > 1 then
+              raise exception 'Um aluno não pode cursar a mesma disciplina duas vezes no mesmo semestre!';
+    end if;
+    return NULL;
 end;
 $$ language plpgsql;
+
+create trigger aluno_sem_disc_iguais_mesmo_sem before insert or update
+       on alunos_inscritos
+       for each row
+       execute procedure aluno_nao_duas_disc_mesmo_sem();
 
  
