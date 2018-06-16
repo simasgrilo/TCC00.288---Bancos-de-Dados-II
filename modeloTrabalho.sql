@@ -19,6 +19,8 @@ DROP TABLE IF EXISTS OFERTAS CASCADE;
 
 DROP TABLE IF EXISTS SALAS CASCADE;
 
+DROP TABLE IF EXISTS ALUNOS_INSCRITOS CASCADE;
+
 -------------------------------------- RELACIONAMENTOS --------------------------------------------------------------
 CREATE TABLE DISCIPLINAS (
     id              serial,                             -- 1
@@ -119,7 +121,9 @@ CREATE TABLE ALUNOS_INSCRITOS (
     aluno   integer not null,
     oferta  integer not null,
     UNIQUE (aluno, oferta),
-    CONSTRAINT pk_inscricao PRIMARY KEY (id)
+    CONSTRAINT pk_inscricao PRIMARY KEY (id),
+    CONSTRAINT fk_alunos FOREIGN KEY (aluno) REFERENCES ALUNOS(id),
+    CONSTRAINT fk_ofertas FOREIGN KEY (oferta) REFERENCES OFERTAS(id)
 );
 
 
@@ -136,33 +140,6 @@ CREATE TABLE AULAS (
 );
 
 
--- Semestre nas duas tabelas?
--- Como garantir a inscrição de um aluno ou não de outro?
--- Talvez remover INSCRIÇÕES e SOLICITAÇÕES por conta do histórico do aluno e CR. Como calcular?
-/* 
-CREATE TABLE inscricoes (
-    id                  SERIAL,
-    semestre            character(5) not null,  -- 2018.1
-    matricula_aluno     bigint not null,        -- 2140131126
-    codigo_turma        integer not null,       -- 1 
-    unique (semestre, matricula_aluno, codigo_turma),
-    constraint fk_aluno foreign key (matricula_aluno) references aluno(matricula),
-    constraint fk_turma foreign key (codigo_turma) references turma(id),
-    constraint pk_inscricoes primary key (id)
-);
-
-CREATE TABLE leciona_em(
-    id          SERIAL,
-    professor   integer not null,       -- 1
-    turma       integer not null,       -- 1
-    semestre    character(5) not null,  -- 2018.1
-    unique (professor, turma, semestre),
-    constraint fk_professor foreign key (professor) references professor(id),
-    constraint fk_professor_turma foreign key (turma) references turma(id), 
-    constraint pk_leciona_em primary key (id)
-);
-*/
-
 -------------------------------------- TRIGGERS --------------------------------------------------------------
 
 --A ideia do trigger abaixo é catar se o professor possui mais de duas turmas em um mesmo horário
@@ -173,15 +150,62 @@ CREATE TABLE leciona_em(
 --                      inner join turma where turma.codigo_turma = leciona_em.codigo_turma
 --                      inner join aula  where aula.turma = leciona_em.codigo_turma )
 --                      group by  
-                      
+
+--Um professor não pode ser coordenador e vice_coordenador ao mesmo tempo                      
 create or replace function professor_coordenador_nao_pode_ser_vice() returns trigger as $$
 begin
-  if (select professor_coordenador from professor 
-       inner join curso on professor.matricula = curso.coordenador) == 
-     (select vice_coordenador from professor 
-        inner join curso on professor.matricula = curso.vice_coordenador) then
-      raise exception 'O professor coordenador não pode ser vice coordenador de um curso!';
+  if ((select professor_coordenador from professores 
+       inner join cursos on professores.matricula = cursos.professor_coordenador) == 
+     (select vice_coordenador from professores 
+        inner join cursos on professores.matricula = cursos.vice_coordenador) 
+        or
+        (select vice_coordenador from professores 
+       inner join cursos on professores.matricula = cursos.vice_coordenador) == 
+     (select vice_coordenador from professores 
+        inner join cursos on professores.matricula = cursos.professor_coordenador)) then
+      raise exception 'O professor coordenador não pode ser o mesmo que o vice!';
   end if;
-  return old;
+  return null;
 end;
 $$ language plpgsql; --falta criar o trigger correspondente
+
+create trigger prof_coordenador_nao_pode_ser_vice before insert or update
+       on cursos
+       for each row
+       execute procedure professor_coordenador_nao_pode_ser_vice();
+
+--Uma sala não pode ter duas aulas ao mesmo tempo de professores diferentes (porém se for o mesmo professor, as disciplinas têm que ser equivalentes).
+--create or replace function sala_duas_aulas_simultaneamente() returns trigger as $$
+--begin
+-- if (select * from aulas (inner join turmas on aulas.turma = turmas.id
+--                          (inner join professor on turmas.professor = professor.id)
+--                           )
+
+-- Um professor não pode ter duas turmas no mesmo horário
+
+create or replace function prof_nao_tem_duas_turmas_mesmo_horario() returns trigger as $$
+begin
+  if (select count(*) from aulas inner join turmas
+                           on aulas.turma = turmas.id
+                           inner join professores
+                           on turma.professor = professores.id
+             group by hora_inicio,hora_fim,dia) > 1 then
+             raise exception 'O professor já possui uma aula neste mesmo horário';
+   end if;
+   return NULL;
+end;
+$$ language plpgsql;
+
+create trigger prof_duas_turmas_mesmo_horario before insert or update
+       on cursos
+       for each row
+       execute procedure prof_nao_tem_duas_turmas_mesmo_horario()
+
+--Um aluno não pode ter duas disciplinas iguais no mesmo semestre (não pode estar cursando a mesma oferta da disciplina duas vezes no mesmo semestre)
+create or replace function aluno_nao_duas_disc_mesmo_sem() returns trigger as $$
+begin
+   if (select * from alunos_inscritos inner join )-- oloco meu ao vivasso
+end;
+$$ language plpgsql;
+
+ 
