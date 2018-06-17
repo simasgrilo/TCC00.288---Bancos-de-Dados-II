@@ -249,49 +249,23 @@ END;$$ LANGUAGE plpgsql;
 SELECT gera_salas();
 SELECT * FROM SALAS;
 
-/*
--- TURMAS
-DROP FUNCTION IF EXISTS gera_turmas();
-CREATE OR REPLACE FUNCTION gera_turmas() RETURNS void AS $$
-DECLARE
-    maxValueProfessores integer = (SELECT COUNT(*) FROM PROFESSORES); 
-    professor integer;
-    codigos char[] = '{A, B, C, D, E}';
-    d record;
-    codigo char(2);
-BEGIN
-    FOR d IN SELECT * FROM DISCIPLINAS_OFERECIDAS LOOP
-        FOR i IN 1..round(random()*4 + 1) LOOP -- De 1 à 5 turmas por disciplina
-            professor = round(random()*(maxValueProfessores - 1)+1);
-            codigo = (codigos[i]) || i;
-            INSERT INTO TURMAS(codigo_turma, professor, oferta) VALUES (codigo, professor, oferta);
-        END LOOP;
-    END LOOP;
-END;$$ LANGUAGE plpgsql;
-
-SELECT gera_turmas();
-SELECT * FROM TURMAS;
 
 -- OFERTAS
-semestre        
-disciplina      
-turma           
-vagas           
-alunos_inscritos
 DROP FUNCTION IF EXISTS gera_ofertas();
 CREATE OR REPLACE FUNCTION gera_ofertas() RETURNS void AS $$
 DECLARE
-    maxValueProfessores integer = (SELECT COUNT(*) FROM PROFESSORES); 
-    professor integer;
-    codigos char[] = '{A, B, C, D, E}';
-    d record;
-    codigo char(2);
+    maxValueDisciplinasOferecidas integer = (SELECT COUNT(*) FROM DISCIPLINAS_OFERECIDAS); 
+    anos integer[] = array[150, 160, 170, 180];
+    semestre char(5);
+    vagas integer;
 BEGIN
-    FOR d IN SELECT * FROM DISCIPLINAS_OFERECIDAS LOOP
-        FOR i IN 1..round(random()*4 + 1) LOOP -- De 1 à 5 turmas por disciplina
-            professor = round(random()*(maxValueProfessores - 1)+1);
-            codigo = (codigos[i]) || i;
-            INSERT INTO TURMAS(codigo_turma, professor, disciplina) VALUES (codigo, professor, d.disciplina);
+    FOR ano IN 1..array_length(anos, 1) LOOP
+        FOR sem IN 1..2 LOOP
+            semestre = 20000 + anos[ano] + sem;
+            FOR oferta IN 1..round(random()*(maxValueDisciplinasOferecidas - 1)+1) LOOP -- qtd de ofertas aleatórias para cada semestre
+                vagas = ((oferta % 3) + 1) * 15;
+                INSERT INTO OFERTAS(semestre, disciplina_oferecida, vagas) VALUES (semestre, oferta, vagas);
+            END LOOP;
         END LOOP;
     END LOOP;
 END;$$ LANGUAGE plpgsql;
@@ -299,7 +273,80 @@ END;$$ LANGUAGE plpgsql;
 SELECT gera_ofertas();
 SELECT * FROM OFERTAS;
 
+
+-- TURMAS
+DROP FUNCTION IF EXISTS gera_turmas();
+CREATE OR REPLACE FUNCTION gera_turmas() RETURNS void AS $$
+DECLARE
+    maxValueProfessores integer = (SELECT COUNT(*) FROM PROFESSORES); 
+    professor integer;
+    codigos char[] = '{A, B, C, D, E}';
+    codigo char(2);
+    oferta record;
+BEGIN
+    FOR oferta IN SELECT * FROM OFERTAS LOOP
+        FOR turma IN 1..round(random()*2 + 1) LOOP -- De 1 à 3 turmas por OFERTA
+            professor = round(random()*(maxValueProfessores - 1)+1);
+            codigo = (codigos[turma]) || turma;
+            INSERT INTO TURMAS(codigo_turma, professor, oferta) VALUES (codigo, professor, oferta.id);
+        END LOOP;
+    END LOOP;
+END;$$ LANGUAGE plpgsql;
+
+SELECT gera_turmas();
+SELECT * FROM TURMAS;
+
+
+-- ALUNOS
+DROP FUNCTION IF EXISTS gera_alunos();
+CREATE OR REPLACE FUNCTION gera_alunos() RETURNS void AS $$
+DECLARE
+    maxValue integer = round(random()*(99 - 1)+1); -- de 1 à 100
+    maxValueCursos integer = (SELECT COUNT(*) FROM CURSOS); 
+    nome text;
+    matricula bigint;
+    curso integer;
+    email text;
+    telefone bigint;
+BEGIN
+    FOR i IN 1..maxValue LOOP
+        nome = 'aluno-' || i;
+        matricula = 214031000 + i;
+        curso = round(random()*(maxValueCursos - 1)+1);
+        email = 'aluno' || i || '@id.uff.br';
+        telefone = 997880000 + i;
+        INSERT INTO ALUNOS(matricula, curso, nome, email, telefone) VALUES (matricula, curso, nome, email, telefone);
+    END LOOP;
+END;$$ LANGUAGE plpgsql;
+
+SELECT gera_alunos();
+SELECT * FROM ALUNOS;
+
+/*
+-- ALUNOS_INSCRITOS
+DROP FUNCTION IF EXISTS gera_alunos_inscritos();
+CREATE OR REPLACE FUNCTION gera_alunos_inscritos() RETURNS void AS $$
+DECLARE
+    maxValue integer = (SELECT COUNT(*) FROM ALUNOS);
+    aluno integer;
+    turma integer;
+BEGIN
+    FOR i IN 1..maxValue LOOP
+        -- TODO Continuar o select bolado
+        IF EXISTS (SELECT * FROM ALUNOS 
+                        INNER JOIN TURMA
+                        INNER JOIN OFERTAS
+                        INNER JOIN DISCIPLINAS
+                        INNER JOIN CURSOS) THEN
+            INSERT INTO ALUNOS_INSCRITOS(aluno, turma) VALUES (aluno, turma);
+    END LOOP;
+END;$$ LANGUAGE plpgsql;
+
+SELECT gera_alunos_inscritos();
+SELECT * FROM ALUNOS_INSCRITOS;
 */
+
+
 
 -------------------------------------- TRIGGERS --------------------------------------------------------------
 
