@@ -487,14 +487,13 @@ $$ language plpgsql;
 -- tá escaralhado
 create or replace function aluno_nao_duas_disc_mesmo_sem() returns trigger as $$
 begin
-   if (select count(*) from alunos_inscritos inner join ofertas
-                     on alunos_inscritos.oferta = ofertas.id
-                     right outer join turmas
-                     on ofertas.turma = turmas.id
-              group by semestre,disciplina) > 1 then
+    IF EXISTS (SELECT * FROM ALUNOS_INSCRITOS AS AI 
+                       INNER JOIN TURMAS AS TU 
+                       ON TU.id = AI.turma AND AI.aluno = new.aluno AND AI.turma = new.turma) THEN
               raise exception 'Um aluno não pode cursar a mesma disciplina duas vezes no mesmo semestre!';
+              return NULL;
     end if;
-    return NULL;
+    return new;
 end;
 $$ language plpgsql;
 
@@ -506,14 +505,12 @@ create trigger aluno_sem_disc_iguais_mesmo_sem before insert or update
 --Uma oferta de disciplina não pode conter mais do que o número máximo permitido de alunos inscritos.
 create or replace function alunos_inscritos_na_oferta() returns trigger as $$
 begin
-  -- if (TG_OP = 'UPDATE') then 
      if (select ofertas.vagas from ofertas left outer join alunos_inscritos
                 on alunos_inscritos.oferta = ofertas.id) < (select ofertas.alunos_inscritos from ofertas left outer join alunos_inscritos
                 on alunos_inscritos.oferta) then
          raise exception 'A quantidade de alunos inscritos ultrapassa a quantidade de vagas na turma';
          return NULL; 
      end if;
-   --else if (TG_OP = 'INSERT')
 end;
 $$ language plpgsql;
 
@@ -535,14 +532,14 @@ end;
 $$ language plpgsql;
 
 --Um professor só pode lecionar uma turma à qual ele tenha licença para lecionar:
---BUGADO
 create or replace function professor_da_aula_de() returns trigger as $$
 begin
-   if not exists (select disciplinas_lecionaveis.professor,disciplinas_lecionaveis.disciplina 
+   if not exists (select disciplinas_lecionaveis.professor,disciplinas_lecionaveis.disciplina --acho que nem precisa desse join todo.
                         from (disciplinas_lecionaveis full outer join
                         ofertas on (ofertas.disciplina_oferecida = disciplinas_lecionaveis.disciplina)
-                        full outer join turmas on (ofertas.id = turmas.oferta))   
-                        where disciplinas_lecionaveis.professor = new.professor) then
+                        full outer join turmas on (ofertas.id = new.oferta))   
+                        where disciplinas_lecionaveis.professor = new.professor and disciplinas_lecionaveis.disciplina = 
+                                             (select disciplina_oferecida from ofertas where ofertas.id = new.oferta)) then
                         raise exception 'O professor não pode lecionar a disciplina em questão!';
                         return null;
     end if;
@@ -554,4 +551,4 @@ create trigger professor_so_pode_dar_aula_do_que_ele_pode_dar_aula before insert
        on turmas
        for each row
        execute procedure professor_da_aula_de();
-       
+
