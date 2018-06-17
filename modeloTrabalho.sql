@@ -131,8 +131,8 @@ CREATE TABLE AULAS (
     id          serial,
     turma       integer not null,       -- 123
     dia         character(3) not null,  -- SEG
-    hora_inicio timestamp not null,     -- 9:00
-    hora_fim    timestamp not null,     -- 11:00
+    hora_inicio time not null,     -- 9:00 --Aqui pode ser int ou só time; timestamp retorna a data também
+    hora_fim    time not null,     -- 11:00
     sala        integer not null,
     CONSTRAINT fk_turma FOREIGN KEY (turma) REFERENCES TURMAS(id),
     CONSTRAINT fk_sala FOREIGN KEY (sala) REFERENCES SALAS(id),
@@ -350,31 +350,23 @@ SELECT * FROM ALUNOS_INSCRITOS;
 
 -------------------------------------- TRIGGERS --------------------------------------------------------------
 
---A ideia do trigger abaixo é catar se o professor possui mais de duas turmas em um mesmo horário
---create or replace function professor_possui_duas_aulas_mesmo_horário returns trigger as $$
---begin
---  IF (select count(*) from professor 
---                      ( inner join leciona_em where professor.matricula = leciona_em.matricula_professor
---                      inner join turma where turma.codigo_turma = leciona_em.codigo_turma
---                      inner join aula  where aula.turma = leciona_em.codigo_turma )
---                      group by  
-
 --Um professor não pode ser coordenador e vice_coordenador ao mesmo tempo. Além disso, um professor não pode coordenar mais de um curso ou nem ser vice de mais de um curso ao mesmo tempo.                      
 create or replace function professor_coordenador_nao_pode_ser_vice() returns trigger as $$
 begin
-  if (new.professor_coordenador = new.vice_coordenador) or
-     exists (select professor_coordenador from cursos
+  if (new.professor_coordenador = new.vice_coordenador) then
+            raise exception 'O professor coordenador não pode ser o mesmo que o vice!';
+            return null;
+  elseif exists (select professor_coordenador from cursos
              where professor_coordenador = new.professor_coordenador)
              or 
      exists (select vice_coordenador from cursos
-             where vice_coordenador = new.vice_coordenador) then
-            raise exception 'O professor coordenador não pode ser o mesmo que o vice!';
-            return null;
-  elseif exists (select vice_coordenador from cursos
-             where professor_coordenador = new.professor_coordenador)
+             where vice_coordenador = new.vice_coordenador)
              or
+     exists (select vice_coordenador from cursos
+             where professor_coordenador = new.professor_coordenador)
+            or
      exists (select professor_coordenador from cursos
-             where vice_coordenador = new.vice_coordenador) then
+             where professor_coordenador = new.vice_coordenador) then
             raise exception 'Este professor já coordena um curso ou é vice coordenador de um curso';
             return null;
   end if;
@@ -388,13 +380,25 @@ create trigger prof_coordenador_nao_pode_ser_vice before insert or update
        for each row
        execute procedure professor_coordenador_nao_pode_ser_vice(); --ok
 
+--Uma sala não pode ter duas aulas no mesmo horário:       
+create or replace function sala_duas_aulas_simultaneamente() returns trigger as $$
+begin
+    if exists (select * from aulas
+               where dia = new.dia 
+                     and hora_inicio = new.hora_inicio
+                     and hora_fim    = new.hora_fim
+                     and sala        = new.sala) then
+               raise exception 'A sala em questão já está sendo usada para outra disciplina no mesmo horário';
+               return NULL;
+     end if;
+     return new;
+end;
+$$ language plpgsql;
 
---Uma sala não pode ter duas aulas ao mesmo tempo de professores diferentes (porém se for o mesmo professor, as disciplinas têm que ser equivalentes).
---create or replace function sala_duas_aulas_simultaneamente() returns trigger as $$
---begin
--- if (select * from aulas (inner join turmas on aulas.turma = turmas.id
---                          (inner join professor on turmas.professor = professor.id)
---                           )
+create trigger sala_duas_aulas_mesmo_horario before insert or update
+       on aulas
+       for each row
+       execute procedure sala_duas_aulas_simultaneamente();
 
 
 -- Um professor não pode ter duas turmas no mesmo horário
@@ -469,15 +473,18 @@ end;
 $$ language plpgsql;
 
 --Um professor só pode lecionar uma turma à qual ele tenha licença para lecionar:
+--BUGADO
 create or replace function professor_da_aula_de() returns trigger as $$
 begin
-   if not exists (select disciplinas_lecionaveis.disciplina 
-                        from disciplinas_lecionaveis full outer join
-                        turmas on (turmas.professor = disciplinas_lecionaveis.professor
-                               and turmas.disciplina = disciplinas_lecionaveis.disciplina)
-                        where disciplinas_lecionaveis.id = new.id and disciplinas_lecionaveis.disciplina = new.disciplina) then
-                  raise exception 'O professor não pode lecionar a disciplina em questão!';
-    end if;           
+   if not exists (select disciplinas_lecionaveis.professor,disciplinas_lecionaveis.disciplina 
+                        from (disciplinas_lecionaveis full outer join
+                        ofertas on (ofertas.disciplina_oferecida = disciplinas_lecionaveis.disciplina)
+                        full outer join turmas on (ofertas.id = turmas.oferta))   
+                        where disciplinas_lecionaveis.professor = new.professor) then
+                        raise exception 'O professor não pode lecionar a disciplina em questão!';
+                        return null;
+    end if;
+    return new;           
 end;
 $$ language plpgsql;
 
@@ -485,3 +492,5 @@ create trigger professor_so_pode_dar_aula_do_que_ele_pode_dar_aula before insert
        on turmas
        for each row
        execute procedure professor_da_aula_de();
+       
+
