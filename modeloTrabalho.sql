@@ -359,28 +359,35 @@ SELECT * FROM ALUNOS_INSCRITOS;
 --                      inner join aula  where aula.turma = leciona_em.codigo_turma )
 --                      group by  
 
---Um professor não pode ser coordenador e vice_coordenador ao mesmo tempo                      
+--Um professor não pode ser coordenador e vice_coordenador ao mesmo tempo. Além disso, um professor não pode coordenar mais de um curso ou nem ser vice de mais de um curso ao mesmo tempo.                      
 create or replace function professor_coordenador_nao_pode_ser_vice() returns trigger as $$
 begin
-  if ((select professor_coordenador from professores 
-       inner join cursos on professores.matricula = cursos.professor_coordenador) == 
-     (select vice_coordenador from professores 
-        inner join cursos on professores.matricula = cursos.vice_coordenador) 
-        or
-        (select vice_coordenador from professores 
-       inner join cursos on professores.matricula = cursos.vice_coordenador) == 
-     (select vice_coordenador from professores 
-        inner join cursos on professores.matricula = cursos.professor_coordenador)) then
-      raise exception 'O professor coordenador não pode ser o mesmo que o vice!';
+  if (new.professor_coordenador = new.vice_coordenador) or
+     exists (select professor_coordenador from cursos
+             where professor_coordenador = new.professor_coordenador)
+             or 
+     exists (select vice_coordenador from cursos
+             where vice_coordenador = new.vice_coordenador) then
+            raise exception 'O professor coordenador não pode ser o mesmo que o vice!';
+            return null;
+  elseif exists (select vice_coordenador from cursos
+             where professor_coordenador = new.professor_coordenador)
+             or
+     exists (select professor_coordenador from cursos
+             where vice_coordenador = new.vice_coordenador) then
+            raise exception 'Este professor já coordena um curso ou é vice coordenador de um curso';
+            return null;
   end if;
-  return null;
+  return new;
 end;
-$$ language plpgsql; --falta criar o trigger correspondente
+$$ language plpgsql; 
+
 
 create trigger prof_coordenador_nao_pode_ser_vice before insert or update
        on cursos
        for each row
-       execute procedure professor_coordenador_nao_pode_ser_vice();
+       execute procedure professor_coordenador_nao_pode_ser_vice(); --ok
+
 
 --Uma sala não pode ter duas aulas ao mesmo tempo de professores diferentes (porém se for o mesmo professor, as disciplinas têm que ser equivalentes).
 --create or replace function sala_duas_aulas_simultaneamente() returns trigger as $$
@@ -415,9 +422,9 @@ $$ language plpgsql;
 create or replace function aluno_nao_duas_disc_mesmo_sem() returns trigger as $$
 begin
    if (select count(*) from alunos_inscritos inner join ofertas
-                     on alunos_inscritos.oferta == ofertas.id
+                     on alunos_inscritos.oferta = ofertas.id
                      right outer join turmas
-                     on ofertas.turma == turmas.id
+                     on ofertas.turma = turmas.id
               group by semestre,disciplina) > 1 then
               raise exception 'Um aluno não pode cursar a mesma disciplina duas vezes no mesmo semestre!';
     end if;
@@ -433,14 +440,14 @@ create trigger aluno_sem_disc_iguais_mesmo_sem before insert or update
 --Uma oferta de disciplina não pode conter mais do que o número máximo permitido de alunos inscritos.
 create or replace function alunos_inscritos_na_oferta() returns trigger as $$
 begin
-  -- if (TG_OP == 'UPDATE') then 
+  -- if (TG_OP = 'UPDATE') then 
      if (select ofertas.vagas from ofertas left outer join alunos_inscritos
-                on alunos_inscritos.oferta == ofertas.id) < (select ofertas.alunos_inscritos from ofertas left outer join alunos_inscritos
+                on alunos_inscritos.oferta = ofertas.id) < (select ofertas.alunos_inscritos from ofertas left outer join alunos_inscritos
                 on alunos_inscritos.oferta) then
          raise exception 'A quantidade de alunos inscritos ultrapassa a quantidade de vagas na turma';
+         return NULL; 
      end if;
-   --else if (TG_OP == 'INSERT')
-   return NULL; 
+   --else if (TG_OP = 'INSERT')
 end;
 $$ language plpgsql;
 
