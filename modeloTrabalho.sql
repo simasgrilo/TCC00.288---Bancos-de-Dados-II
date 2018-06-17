@@ -322,29 +322,31 @@ END;$$ LANGUAGE plpgsql;
 SELECT gera_alunos();
 SELECT * FROM ALUNOS;
 
-/*
+
 -- ALUNOS_INSCRITOS
 DROP FUNCTION IF EXISTS gera_alunos_inscritos();
 CREATE OR REPLACE FUNCTION gera_alunos_inscritos() RETURNS void AS $$
 DECLARE
-    maxValue integer = (SELECT COUNT(*) FROM ALUNOS);
-    aluno integer;
-    turma integer;
+    maxValueAlunos integer = (SELECT COUNT(*) FROM ALUNOS);
+    maxValueTurmas integer = (SELECT COUNT(*) FROM TURMAS);
+    tur integer;
 BEGIN
-    FOR i IN 1..maxValue LOOP
-        -- TODO Continuar o select bolado
-        IF EXISTS (SELECT * FROM ALUNOS 
-                        INNER JOIN TURMA
-                        INNER JOIN OFERTAS
-                        INNER JOIN DISCIPLINAS
-                        INNER JOIN CURSOS) THEN
-            INSERT INTO ALUNOS_INSCRITOS(aluno, turma) VALUES (aluno, turma);
+    FOR alu IN 1..maxValueAlunos LOOP
+        FOR i IN 1..5 LOOP
+            tur = round(random()*(maxValueTurmas - 1)+1);
+            IF EXISTS (SELECT * FROM ALUNOS_INSCRITOS AS AI 
+                       INNER JOIN TURMAS AS TU 
+                       ON TU.id = AI.turma AND AI.aluno = alu AND AI.turma = tur) THEN
+                RAISE NOTICE 'Esse aluno já se inscreveu nessa turma nesse mesmo período';
+            ELSE
+                INSERT INTO ALUNOS_INSCRITOS(aluno, turma) VALUES (alu, tur);
+            END IF;
+        END LOOP;
     END LOOP;
 END;$$ LANGUAGE plpgsql;
 
 SELECT gera_alunos_inscritos();
 SELECT * FROM ALUNOS_INSCRITOS;
-*/
 
 
 
@@ -493,4 +495,3 @@ create trigger professor_so_pode_dar_aula_do_que_ele_pode_dar_aula before insert
        for each row
        execute procedure professor_da_aula_de();
        
-
