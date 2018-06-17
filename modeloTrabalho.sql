@@ -73,10 +73,11 @@ CREATE TABLE DISCIPLINAS_OFERECIDAS (
 
 
 CREATE TABLE SALAS (
-    id      serial,
-    numero  int not null,           -- 217
-    bloco   character(3) not null,  -- IC2
-    UNIQUE (numero, bloco),         -- Não pode ter igual
+    id          serial,
+    numero      int not null,           -- 217
+    bloco       character(3) not null,  -- IC2
+    capacidade  integer default 40,     -- 30
+    UNIQUE (numero, bloco),
     CONSTRAINT pk_sala PRIMARY KEY(id)
 );
 
@@ -249,8 +250,8 @@ BEGIN
     FOR andar IN 2..3 LOOP
         FOR num IN 1..array_length(salas, 1) LOOP
             numero = (100 * andar) + salas[num];
-            INSERT INTO SALAS(numero, bloco) VALUES (numero, 'IC1');
-            INSERT INTO SALAS(numero, bloco) VALUES (numero, 'IC2');
+            INSERT INTO SALAS(numero, bloco, capacidade) VALUES (numero, 'IC1', ((numero % 3) + 1) * 20);
+            INSERT INTO SALAS(numero, bloco, capacidade) VALUES (numero, 'IC2', ((numero % 3) + 1) * 15);
         END LOOP;
     END LOOP;
 END;$$ LANGUAGE plpgsql;
@@ -386,7 +387,7 @@ DECLARE
     di char(3);
     hi integer;
     hf integer;
-    sala integer;
+    sal integer;
 BEGIN
     FOR tur IN (SELECT * FROM TURMAS) LOOP
         FOR aulas IN 1..round(random()*1 + 1) LOOP  -- De 1 à 2 aulas por TURMA     
@@ -394,13 +395,22 @@ BEGIN
             hi = random()*13 + 7;                   -- valor aleatorio de 7h à 20h
             hf = hi + 2;                            -- Hora de início + 2h
             
-            IF EXISTS (SELECT * FROM AULAS 
+            IF EXISTS (SELECT * FROM AULAS
                        INNER JOIN TURMAS ON TURMAS.id = AULAS.turma
                        WHERE turma = tur.id AND dia = di AND @(hora_inicio - hi) < 2) THEN
                 RAISE NOTICE 'Esse professor já leciona nesse dia e horário';
             ELSE
-                -- TODO Escolher sala ideal
-                INSERT INTO AULAS (turma, sala, dia, hora_inicio, hora_fim) VALUES (tur.id, 2, di, hi, hf);
+                sal = (SELECT SALAS.id FROM SALAS
+                        FULL JOIN AULAS ON SALAS.id = AULAS.sala
+                        INNER JOIN OFERTAS ON OFERTAS.id = tur.oferta
+                        WHERE capacidade >= alunos_inscritos AND hora_inicio IS NULL OR @(hora_inicio - hi) > 1
+                        ORDER BY random() LIMIT 1);
+                
+                IF sal IS NOT NULL THEN
+                    INSERT INTO AULAS (turma, sala, dia, hora_inicio, hora_fim) VALUES (tur.id, sal, di, hi, hf);
+                ELSE
+                    RAISE NOTICE 'Não há sala disponível nesse horário que comporte essa aula'; 
+                END IF;
             END IF;
         END LOOP;   
     END LOOP;
