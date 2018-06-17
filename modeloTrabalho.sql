@@ -94,13 +94,13 @@ CREATE TABLE OFERTAS (
 
 
 CREATE TABLE TURMAS (
-    id              serial,                 -- 1
+    id              serial,
     codigo_turma    character(2) not null,  -- A1
     professor       integer not null,       -- Luiz André
     oferta          integer not null,       -- 12312 
     UNIQUE (codigo_turma, professor, oferta),
-    CONSTRAINT fk_professor foreign key (professor) references PROFESSORES(id),
-    CONSTRAINT fk_oferta foreign key (oferta) references OFERTAS(id),
+    CONSTRAINT fk_professor FOREIGN KEY (professor) REFERENCES PROFESSORES(id),
+    CONSTRAINT fk_oferta FOREIGN KEY (oferta) REFERENCES OFERTAS(id),
     CONSTRAINT pk_turma PRIMARY KEY (id)
 );
 
@@ -130,10 +130,11 @@ CREATE TABLE ALUNOS_INSCRITOS (
 CREATE TABLE AULAS (
     id          serial,
     turma       integer not null,       -- 123
+    sala        integer not null,       -- 567
     dia         character(3) not null,  -- SEG
-    hora_inicio time not null,     -- 9:00 --Aqui pode ser int ou só time; timestamp retorna a data também
-    hora_fim    time not null,     -- 11:00
-    sala        integer not null,
+    hora_inicio int not null,           -- 9
+    hora_fim    int not null,           -- 11
+    UNIQUE (turma, sala, dia, hora_inicio),
     CONSTRAINT fk_turma FOREIGN KEY (turma) REFERENCES TURMAS(id),
     CONSTRAINT fk_sala FOREIGN KEY (sala) REFERENCES SALAS(id),
     CONSTRAINT pk_aula PRIMARY KEY (id)
@@ -221,9 +222,17 @@ CREATE OR REPLACE FUNCTION gera_disciplinas_oferecidas() RETURNS void AS $$
 DECLARE
     maxValueCursos integer = (SELECT COUNT(*) FROM CURSOS);
     maxValueDisciplinas integer = (SELECT COUNT(*) FROM DISCIPLINAS);
+    disciplinaOfe integer;
 BEGIN
     FOR i IN 1..maxValueCursos LOOP
-        INSERT INTO DISCIPLINAS_OFERECIDAS(curso, disciplina) VALUES (i, round(random()*(maxValueDisciplinas + 1) + 1));
+        FOR j IN 1..round(random()*9 + 1) LOOP -- Cada curso pode oferecer até 10 disciplinas
+            disciplinaOfe = round(random()*(maxValueDisciplinas + 1) + 1);
+            IF EXISTS (SELECT * FROM DISCIPLINAS_OFERECIDAS AS DIO WHERE curso = i AND disciplina = disciplinaOfe) THEN
+                RAISE NOTICE 'Esse curso já oferece essa disciplina';
+            ELSE
+                INSERT INTO DISCIPLINAS_OFERECIDAS(curso, disciplina) VALUES (i, disciplinaOfe);
+            END IF;
+        END LOOP;
     END LOOP;
 END;$$ LANGUAGE plpgsql;
 SELECT gera_disciplinas_oferecidas();
@@ -278,17 +287,20 @@ SELECT * FROM OFERTAS;
 DROP FUNCTION IF EXISTS gera_turmas();
 CREATE OR REPLACE FUNCTION gera_turmas() RETURNS void AS $$
 DECLARE
-    maxValueProfessores integer = (SELECT COUNT(*) FROM PROFESSORES); 
-    professor integer;
-    codigos char[] = '{A, B, C, D, E}';
-    codigo char(2);
+    prof integer;
     oferta record;
+    codigos char[] = array['A', 'B', 'C', 'D', 'E'];
+    codigo char(2);
 BEGIN
     FOR oferta IN SELECT * FROM OFERTAS LOOP
-        FOR turma IN 1..round(random()*2 + 1) LOOP -- De 1 à 3 turmas por OFERTA
-            professor = round(random()*(maxValueProfessores - 1)+1);
-            codigo = (codigos[turma]) || turma;
-            INSERT INTO TURMAS(codigo_turma, professor, oferta) VALUES (codigo, professor, oferta.id);
+        FOR turma IN 1..round(random()*2 + 1) LOOP  -- De 1 à 3 turmas por OFERTA
+            -- professor aleatório que possa lecionar a disciplina da oferta
+            prof = (SELECT professor FROM DISCIPLINAS_LECIONAVEIS 
+                    INNER JOIN DISCIPLINAS_OFERECIDAS AS DIO ON DIO.id = oferta.disciplina_oferecida
+                    ORDER BY random() LIMIT 1);
+            
+            codigo = (codigos[turma]) || turma;     
+            INSERT INTO TURMAS(codigo_turma, professor, oferta) VALUES (codigo, prof, oferta.id);
         END LOOP;
     END LOOP;
 END;$$ LANGUAGE plpgsql;
@@ -329,17 +341,30 @@ CREATE OR REPLACE FUNCTION gera_alunos_inscritos() RETURNS void AS $$
 DECLARE
     maxValueAlunos integer = (SELECT COUNT(*) FROM ALUNOS);
     maxValueTurmas integer = (SELECT COUNT(*) FROM TURMAS);
+    cursoAluno integer;
     tur integer;
 BEGIN
     FOR alu IN 1..maxValueAlunos LOOP
-        FOR i IN 1..5 LOOP
-            tur = round(random()*(maxValueTurmas - 1)+1);
-            IF EXISTS (SELECT * FROM ALUNOS_INSCRITOS AS AI 
-                       INNER JOIN TURMAS AS TU 
-                       ON TU.id = AI.turma AND AI.aluno = alu AND AI.turma = tur) THEN
-                RAISE NOTICE 'Esse aluno já se inscreveu nessa turma nesse mesmo período';
+        FOR i IN 1..round(random()*24+1) LOOP -- Se increve em até 6 turmas de diversos semestres (x 4 anos)
+            cursoAluno = (SELECT curso FROM ALUNOS WHERE id=alu);
+
+            -- Turma aleatória que o aluno possa se inscrever
+            tur = (SELECT TURMAS.id FROM TURMAS
+                    INNER JOIN OFERTAS AS OFE ON OFE.id = TURMAS.oferta
+                    INNER JOIN DISCIPLINAS_OFERECIDAS AS DIO ON OFE.disciplina_oferecida = DIO.id
+                    WHERE curso=cursoAluno
+                    ORDER BY random() LIMIT 1);
+                    
+            IF tur IS NOT NULL THEN
+                IF EXISTS (SELECT * FROM ALUNOS_INSCRITOS AS AI 
+                           INNER JOIN TURMAS AS TU 
+                           ON TU.id = AI.turma AND AI.aluno = alu AND AI.turma = tur) THEN
+                    RAISE NOTICE 'Esse aluno já se inscreveu nessa turma nesse mesmo período';
+                ELSE
+                    INSERT INTO ALUNOS_INSCRITOS(aluno, turma) VALUES (alu, tur);
+                END IF;
             ELSE
-                INSERT INTO ALUNOS_INSCRITOS(aluno, turma) VALUES (alu, tur);
+                RAISE NOTICE 'O curso do aluno não possui turmas';
             END IF;
         END LOOP;
     END LOOP;
@@ -348,6 +373,41 @@ END;$$ LANGUAGE plpgsql;
 SELECT gera_alunos_inscritos();
 SELECT * FROM ALUNOS_INSCRITOS;
 
+
+-- Todas as turmas de um semestre
+-- SELECT * FROM TURMAS INNER JOIN OFERTAS ON OFERTAS.id = TURMAS.oferta WHERE OFERTAS.semestre='20151';
+
+-- AULAS
+DROP FUNCTION IF EXISTS gera_aulas();
+CREATE OR REPLACE FUNCTION gera_aulas() RETURNS void AS $$
+DECLARE
+    tur record;
+    dias char(3)[] = array['SEG', 'TER', 'QUA', 'QUI', 'SEX'];
+    di char(3);
+    hi integer;
+    hf integer;
+    sala integer;
+BEGIN
+    FOR tur IN (SELECT * FROM TURMAS) LOOP
+        FOR aulas IN 1..round(random()*1 + 1) LOOP  -- De 1 à 2 aulas por TURMA     
+            di = dias[round(random()*4 + 1)];       -- de SEG à SEX
+            hi = random()*13 + 7;                   -- valor aleatorio de 7h à 20h
+            hf = hi + 2;                            -- Hora de início + 2h
+            
+            IF EXISTS (SELECT * FROM AULAS 
+                       INNER JOIN TURMAS ON TURMAS.id = AULAS.turma
+                       WHERE turma = tur.id AND dia = di AND @(hora_inicio - hi) < 2) THEN
+                RAISE NOTICE 'Esse professor já leciona nesse dia e horário';
+            ELSE
+                -- TODO Escolher sala ideal
+                INSERT INTO AULAS (turma, sala, dia, hora_inicio, hora_fim) VALUES (tur.id, 2, di, hi, hf);
+            END IF;
+        END LOOP;   
+    END LOOP;
+END;$$ LANGUAGE plpgsql;
+
+SELECT gera_aulas();
+SELECT * FROM AULAS;
 
 
 -------------------------------------- TRIGGERS --------------------------------------------------------------
