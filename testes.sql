@@ -57,3 +57,17 @@ select * from turmas full outer join ofertas on turmas.id = ofertas.id;
             
 --Um aluno não pode estar inscrito na mesma disciplina 2x no mesmo período
 
+select * from alunos_inscritos;
+select * from turmas where id = 131;
+SELECT * FROM ofertas where id = 62;
+
+select * from alunos_inscritos where
+aluno = 1 and turma = 131; --aluno 1 está na turma j
+
+select inscreve_aluno(1,131);
+
+
+--Uma turma não pode ocnter mais alunos do que a quantidade de vagas estabelecidas:
+--SELECT * FROM ofertas where id = 127;
+--select * from turmas where id = 269;
+--select * from alunos_inscritos;

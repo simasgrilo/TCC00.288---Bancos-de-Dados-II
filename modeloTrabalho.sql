@@ -500,34 +500,36 @@ $$ language plpgsql;
 create trigger aluno_sem_disc_iguais_mesmo_sem before insert or update
        on alunos_inscritos
        for each row
-       execute procedure aluno_nao_duas_disc_mesmo_sem();
+       execute procedure aluno_nao_duas_disc_mesmo_sem(); --ok
        
 --Uma oferta de disciplina não pode conter mais do que o número máximo permitido de alunos inscritos.
-create or replace function alunos_inscritos_na_oferta() returns trigger as $$
+create or replace function alunos_inscritos_na_turma() returns trigger as $$
 begin
-     if (select ofertas.vagas from ofertas left outer join alunos_inscritos
-                on alunos_inscritos.oferta = ofertas.id) < (select ofertas.alunos_inscritos from ofertas left outer join alunos_inscritos
-                on alunos_inscritos.oferta) then
+     if ((select vagas from ofertas where id = new.id) < (select alunos_inscritos from ofertas where id = new.id))
+        or (select vagas from ofertas where id = new.id) < new.alunos_inscritos or
+            (select alunos_inscritos from ofertas where id = new.id) > new.vagas 
+                then
          raise exception 'A quantidade de alunos inscritos ultrapassa a quantidade de vagas na turma';
          return NULL; 
      end if;
+    return new;
 end;
-$$ language plpgsql;
+$$ language plpgsql; --PROCEDURE ok
 
-create trigger qte_alunos_inscritos_oferta before insert or update
+create trigger qte_alunos_inscritos_turma before insert or update
        on ofertas
        for each row
-       execute procedure alunos_inscritos_na_oferta();
+       execute procedure alunos_inscritos_na_turma(); --ok
 
---PROCEDURE 1: ao inserir um aluno em uma oferta de uma disciplina, adicionar em um o número de alunos inscritos naquela oferta. Pra ele vai ser meio besta mas eu tô com 0 ideias. Real sei nem se funciona k
-create or replace function inscreve_aluno(aluno integer, oferta integer) returns void as $$
+--PROCEDURE 1: ao inserir um aluno em uma oferta de uma disciplina, adicionar em um o número de alunos inscritos naquela oferta. 
+DROP FUNCTION inscreve_aluno(integer,integer);
+create or replace function inscreve_aluno(alunoIn integer, turmaIn integer) returns void as $$
 begin
-  insert into  ofertas
-  values (aluno,oferta);
+  insert into alunos_inscritos(aluno, turma)
+  values (alunoIn,turmaIn);
   update ofertas 
   set alunos_inscritos = alunos_inscritos + 1
-  where oferta.id = oferta;
-
+  where ofertas.id = (select ofertas.id from ofertas where ofertas.id = (select turmas.oferta from turmas where id = turmaIn));
 end;
 $$ language plpgsql;
 
