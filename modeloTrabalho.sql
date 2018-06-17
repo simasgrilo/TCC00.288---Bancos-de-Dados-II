@@ -119,10 +119,10 @@ CREATE TABLE ALUNOS (
 CREATE TABLE ALUNOS_INSCRITOS (
     id      serial,
     aluno   integer not null,
-    oferta  integer not null,
-    UNIQUE (aluno, oferta),
+    turma   integer not null,
+    UNIQUE (aluno, turma),
     CONSTRAINT fk_aluno FOREIGN KEY (aluno) REFERENCES ALUNOS (id),
-    CONSTRAINT fk_oferta FOREIGN KEY (oferta) REFERENCES OFERTAS (id),
+    CONSTRAINT fk_turma FOREIGN KEY (turma) REFERENCES TURMAS (id),
     CONSTRAINT pk_inscricao PRIMARY KEY (id)
 );
 
