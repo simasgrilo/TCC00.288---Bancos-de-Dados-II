@@ -460,7 +460,7 @@ $$ language plpgsql;
 create trigger sala_duas_aulas_mesmo_horario before insert or update
        on aulas
        for each row
-       execute procedure sala_duas_aulas_simultaneamente();
+       execute procedure sala_duas_aulas_simultaneamente();--ok
 
 
 -- Um professor não pode ter duas turmas no mesmo horário
@@ -550,5 +550,5 @@ $$ language plpgsql;
 create trigger professor_so_pode_dar_aula_do_que_ele_pode_dar_aula before insert or update --esse nome foi de zoas mesmo
        on turmas
        for each row
-       execute procedure professor_da_aula_de();
+       execute procedure professor_da_aula_de(); --ok
 
