@@ -142,6 +142,19 @@ CREATE TABLE AULAS (
 );
 
 
+-- PROCEDURE 1
+-- Ao inserir um aluno em uma turma, adicionar em um o número de alunos inscritos naquela turma. 
+DROP FUNCTION inscreve_aluno(integer,integer);
+create or replace function inscreve_aluno(alunoIn integer, turmaIn integer) returns void as $$
+begin
+  insert into alunos_inscritos(aluno, turma)
+  values (alunoIn,turmaIn);
+  
+  update ofertas 
+  set alunos_inscritos = alunos_inscritos + 1
+  where ofertas.id = (select ofertas.id from ofertas where ofertas.id = (select turmas.oferta from turmas where id = turmaIn));
+end;
+$$ language plpgsql;
 
 -------------------------------------- TRIGGERS --------------------------------------------------------------
 
@@ -174,18 +187,26 @@ create trigger prof_coordenador_nao_pode_ser_vice before insert or update
        on cursos
        for each row
        execute procedure professor_coordenador_nao_pode_ser_vice(); --ok
-
+       
 /*
+
 --Uma sala não pode ter duas aulas no mesmo horário:       
 create or replace function sala_duas_aulas_simultaneamente() returns trigger as $$
 begin
     if exists (select * from aulas
                inner join turmas on turmas.id = aulas.turma
-               inner join
+               inner join ofertas on turmas.oferta = ofertas.id
                where dia = new.dia 
                      and hora_inicio = new.hora_inicio
                      and hora_fim    = new.hora_fim
-                     and sala        = new.sala) then
+                     and sala        = new.sala
+                     and ofertas.semestre = (select ofertas.semestre from
+                                                    ofertas inner join turmas on turmas.oferta = ofertas.id
+                                                    inner join aulas on turmas.id = aulas.turma
+                                                    where    dia = new.dia 
+							     and hora_inicio = new.hora_inicio
+							     and hora_fim    = new.hora_fim
+							     and sala        = new.sala )) then
                raise exception 'A sala em questão já está sendo usada para outra disciplina no mesmo horário';
                return NULL;
      end if;
@@ -512,7 +533,8 @@ BEGIN
                            ON TU.id = AI.turma AND AI.aluno = alu AND AI.turma = tur) THEN
                     RAISE NOTICE 'Esse aluno já se inscreveu nessa turma nesse mesmo período';
                 ELSE
-                    INSERT INTO ALUNOS_INSCRITOS(aluno, turma) VALUES (alu, tur);
+                    PERFORM inscreve_aluno(alu, tur);
+                    --INSERT INTO ALUNOS_INSCRITOS(aluno, turma) VALUES (alu, tur);
                 END IF;
             ELSE
                 RAISE NOTICE 'O curso do aluno não possui turmas';
@@ -568,19 +590,6 @@ SELECT * FROM AULAS;
 
 
 ---------------------------------------- PROCEDURES ------------------------------------------------------
-
--- Ao inserir um aluno em uma oferta de uma disciplina, adicionar em um o número de alunos inscritos naquela oferta. 
-DROP FUNCTION inscreve_aluno(integer,integer);
-create or replace function inscreve_aluno(alunoIn integer, turmaIn integer) returns void as $$
-begin
-  insert into alunos_inscritos(aluno, turma)
-  values (alunoIn,turmaIn);
-  
-  update ofertas 
-  set alunos_inscritos = alunos_inscritos + 1
-  where ofertas.id = (select ofertas.id from ofertas where ofertas.id = (select turmas.oferta from turmas where id = turmaIn));
-end;
-$$ language plpgsql;
 
 
 -- Todas as turmas de um semestre
