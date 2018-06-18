@@ -142,6 +142,143 @@ CREATE TABLE AULAS (
 );
 
 
+
+-------------------------------------- TRIGGERS --------------------------------------------------------------
+
+--Um professor não pode ser coordenador e vice_coordenador ao mesmo tempo. Além disso, um professor não pode coordenar mais de um curso ou nem ser vice de mais de um curso ao mesmo tempo.                      
+create or replace function professor_coordenador_nao_pode_ser_vice() returns trigger as $$
+begin
+  if (new.professor_coordenador = new.vice_coordenador) then
+            raise exception 'O professor coordenador não pode ser o mesmo que o vice!';
+            return null;
+  elseif exists (select professor_coordenador from cursos
+             where professor_coordenador = new.professor_coordenador)
+             or 
+     exists (select vice_coordenador from cursos
+             where vice_coordenador = new.vice_coordenador)
+             or
+     exists (select vice_coordenador from cursos
+             where professor_coordenador = new.professor_coordenador)
+            or
+     exists (select professor_coordenador from cursos
+             where professor_coordenador = new.vice_coordenador) then
+            raise exception 'Este professor já coordena um curso ou é vice coordenador de um curso';
+            return null;
+  end if;
+  return new;
+end;
+$$ language plpgsql; 
+
+
+create trigger prof_coordenador_nao_pode_ser_vice before insert or update
+       on cursos
+       for each row
+       execute procedure professor_coordenador_nao_pode_ser_vice(); --ok
+
+/*
+--Uma sala não pode ter duas aulas no mesmo horário:       
+create or replace function sala_duas_aulas_simultaneamente() returns trigger as $$
+begin
+    if exists (select * from aulas
+               inner join turmas on turmas.id = aulas.turma
+               inner join
+               where dia = new.dia 
+                     and hora_inicio = new.hora_inicio
+                     and hora_fim    = new.hora_fim
+                     and sala        = new.sala) then
+               raise exception 'A sala em questão já está sendo usada para outra disciplina no mesmo horário';
+               return NULL;
+     end if;
+     return new;
+end;
+$$ language plpgsql;
+
+create trigger sala_duas_aulas_mesmo_horario before insert or update
+       on aulas
+       for each row
+       execute procedure sala_duas_aulas_simultaneamente();--ok
+*/
+
+
+-- Um professor não pode ter duas turmas no mesmo horário
+CREATE OR REPLACE FUNCTION prof_nao_tem_duas_turmas_mesmo_horario() RETURNS TRIGGER AS $$
+BEGIN
+    IF EXISTS (SELECT * FROM AULAS
+                INNER JOIN TURMAS ON TURMAS.id = AULAS.turma
+                WHERE turma = NEW.turma AND dia = NEW.dia AND @(hora_inicio - NEW.hora_inicio) < 2) THEN
+        RAISE EXCEPTION 'Esse professor já possui uma aula neste mesmo dia e horário';
+        RETURN NULL;
+    ELSE
+        RETURN NEW;
+    END IF;
+END;
+$$ LANGUAGE plpgsql;
+
+CREATE TRIGGER prof_duas_turmas_mesmo_horario BEFORE INSERT OR UPDATE ON AULAS
+       FOR EACH ROW
+       EXECUTE PROCEDURE prof_nao_tem_duas_turmas_mesmo_horario();
+       
+       
+
+--Um aluno não pode ter duas disciplinas iguais no mesmo semestre (não pode estar cursando a mesma oferta da disciplina duas vezes no mesmo semestre)
+-- tá escaralhado
+create or replace function aluno_nao_duas_disc_mesmo_sem() returns trigger as $$
+begin
+    IF EXISTS (SELECT * FROM ALUNOS_INSCRITOS AS AI 
+                       INNER JOIN TURMAS AS TU 
+                       ON TU.id = AI.turma AND AI.aluno = new.aluno AND AI.turma = new.turma) THEN
+              raise exception 'Um aluno não pode cursar a mesma disciplina duas vezes no mesmo semestre!';
+              return NULL;
+    end if;
+    return new;
+end;
+$$ language plpgsql;
+
+create trigger aluno_sem_disc_iguais_mesmo_sem before insert or update
+       on alunos_inscritos
+       for each row
+       execute procedure aluno_nao_duas_disc_mesmo_sem(); --ok
+       
+--Uma oferta de disciplina não pode conter mais do que o número máximo permitido de alunos inscritos.
+create or replace function alunos_inscritos_na_turma() returns trigger as $$
+begin
+     if ((select vagas from ofertas where id = new.id) < (select alunos_inscritos from ofertas where id = new.id))
+        or (select vagas from ofertas where id = new.id) < new.alunos_inscritos or
+            (select alunos_inscritos from ofertas where id = new.id) > new.vagas 
+                then
+         raise exception 'A quantidade de alunos inscritos ultrapassa a quantidade de vagas na turma';
+         return NULL; 
+     end if;
+    return new;
+end;
+$$ language plpgsql; --PROCEDURE ok
+
+create trigger qte_alunos_inscritos_turma before insert or update
+       on ofertas
+       for each row
+       execute procedure alunos_inscritos_na_turma(); --ok
+
+
+--Um professor só pode lecionar uma turma à qual ele tenha licença para lecionar:
+CREATE OR REPLACE FUNCTION professor_da_aula_de() RETURNS TRIGGER AS $$
+DECLARE
+    novaDisciplina integer;
+BEGIN
+    novaDisciplina = (SELECT disciplina_oferecida FROM OFERTAS AS OFE WHERE OFE.id = NEW.oferta);
+    IF NOT EXISTS (SELECT * FROM DISCIPLINAS_LECIONAVEIS WHERE disciplina = novaDisciplina AND professor = NEW.professor) THEN
+        RAISE EXCEPTION 'O professor não pode lecionar a disciplina em questão!';
+        RETURN NULL;
+    END IF;
+    RETURN NEW;           
+END;
+$$ LANGUAGE plpgsql;
+
+create trigger professor_so_pode_dar_aula_do_que_ele_pode_dar_aula before insert or update
+       on turmas
+       for each row
+       execute procedure professor_da_aula_de();
+       
+
 --------------------------------------- DUMMY DATA INSERTS ---------------------------------------------------------
 -- DISCIPLINAS
 DROP FUNCTION IF EXISTS gera_disciplinas();
@@ -191,9 +328,18 @@ CREATE OR REPLACE FUNCTION gera_disciplinas_lecionaveis() RETURNS void AS $$
 DECLARE
     maxValueProfessores integer = (SELECT COUNT(*) FROM PROFESSORES);
     maxValueDisciplinas integer = (SELECT COUNT(*) FROM DISCIPLINAS);
+    prof record;
+    disc integer;
 BEGIN
-    FOR i IN 1..maxValueProfessores LOOP
-        INSERT INTO DISCIPLINAS_LECIONAVEIS(professor, disciplina) VALUES (i, round(random()*(maxValueDisciplinas + 1) + 1));
+    FOR prof IN SELECT * FROM PROFESSORES LOOP
+        FOR d IN 1..round(random()*4 + 1) LOOP -- De 1 à 5 disciplinas lecionáveis por professor
+            disc = round(random()*(maxValueDisciplinas - 1) + 1);
+            IF EXISTS (SELECT * FROM DISCIPLINAS_LECIONAVEIS WHERE professor = prof.id AND disciplina = disc) THEN
+                RAISE NOTICE 'Esse professor já leciona essa disciplina';
+            ELSE
+                INSERT INTO DISCIPLINAS_LECIONAVEIS(professor, disciplina) VALUES (prof.id, disc);
+            END IF;
+        END LOOP;
     END LOOP;
 END;$$ LANGUAGE plpgsql;
 SELECT gera_disciplinas_lecionaveis();
@@ -209,7 +355,7 @@ DECLARE
 BEGIN
     FOR i IN 1..maxValue LOOP
         curso = 'curso-' || i;
-        INSERT INTO CURSOS(nome, professor_coordenador, vice_coordenador) VALUES (curso, i, (maxValue * 2) - i);
+        INSERT INTO CURSOS(nome, professor_coordenador, vice_coordenador) VALUES (curso, i, (maxValue * 2) - i + 1);
     END LOOP;
 END;$$ LANGUAGE plpgsql;
 
@@ -297,11 +443,15 @@ BEGIN
         FOR turma IN 1..round(random()*2 + 1) LOOP  -- De 1 à 3 turmas por OFERTA
             -- professor aleatório que possa lecionar a disciplina da oferta
             prof = (SELECT professor FROM DISCIPLINAS_LECIONAVEIS 
-                    INNER JOIN DISCIPLINAS_OFERECIDAS AS DIO ON DIO.id = oferta.disciplina_oferecida
+                    WHERE disciplina = oferta.disciplina_oferecida
                     ORDER BY random() LIMIT 1);
             
-            codigo = (codigos[turma]) || turma;     
-            INSERT INTO TURMAS(codigo_turma, professor, oferta) VALUES (codigo, prof, oferta.id);
+            IF prof IS NOT NULL THEN
+                codigo = (codigos[turma]) || turma;     
+                INSERT INTO TURMAS(codigo_turma, professor, oferta) VALUES (codigo, prof, oferta.id);
+            ELSE
+                RAISE NOTICE 'Não há professor disponível para essa disciplina';
+            END IF;
         END LOOP;
     END LOOP;
 END;$$ LANGUAGE plpgsql;
@@ -375,9 +525,6 @@ SELECT gera_alunos_inscritos();
 SELECT * FROM ALUNOS_INSCRITOS;
 
 
--- Todas as turmas de um semestre
--- SELECT * FROM TURMAS INNER JOIN OFERTAS ON OFERTAS.id = TURMAS.oferta WHERE OFERTAS.semestre='20151';
-
 -- AULAS
 DROP FUNCTION IF EXISTS gera_aulas();
 CREATE OR REPLACE FUNCTION gera_aulas() RETURNS void AS $$
@@ -420,147 +567,44 @@ SELECT gera_aulas();
 SELECT * FROM AULAS;
 
 
--------------------------------------- TRIGGERS --------------------------------------------------------------
+---------------------------------------- PROCEDURES ------------------------------------------------------
 
---Um professor não pode ser coordenador e vice_coordenador ao mesmo tempo. Além disso, um professor não pode coordenar mais de um curso ou nem ser vice de mais de um curso ao mesmo tempo.                      
-create or replace function professor_coordenador_nao_pode_ser_vice() returns trigger as $$
-begin
-  if (new.professor_coordenador = new.vice_coordenador) then
-            raise exception 'O professor coordenador não pode ser o mesmo que o vice!';
-            return null;
-  elseif exists (select professor_coordenador from cursos
-             where professor_coordenador = new.professor_coordenador)
-             or 
-     exists (select vice_coordenador from cursos
-             where vice_coordenador = new.vice_coordenador)
-             or
-     exists (select vice_coordenador from cursos
-             where professor_coordenador = new.professor_coordenador)
-            or
-     exists (select professor_coordenador from cursos
-             where professor_coordenador = new.vice_coordenador) then
-            raise exception 'Este professor já coordena um curso ou é vice coordenador de um curso';
-            return null;
-  end if;
-  return new;
-end;
-$$ language plpgsql; 
-
-
-create trigger prof_coordenador_nao_pode_ser_vice before insert or update
-       on cursos
-       for each row
-       execute procedure professor_coordenador_nao_pode_ser_vice(); --ok
-
---Uma sala não pode ter duas aulas no mesmo horário:       
-create or replace function sala_duas_aulas_simultaneamente() returns trigger as $$
-begin
-    if exists (select * from aulas
-               where dia = new.dia 
-                     and hora_inicio = new.hora_inicio
-                     and hora_fim    = new.hora_fim
-                     and sala        = new.sala) then
-               raise exception 'A sala em questão já está sendo usada para outra disciplina no mesmo horário';
-               return NULL;
-     end if;
-     return new;
-end;
-$$ language plpgsql;
-
-create trigger sala_duas_aulas_mesmo_horario before insert or update
-       on aulas
-       for each row
-       execute procedure sala_duas_aulas_simultaneamente();--ok
-
-
--- Um professor não pode ter duas turmas no mesmo horário
-create or replace function prof_nao_tem_duas_turmas_mesmo_horario() returns trigger as $$
-begin
-  if (select count(*) from aulas left outer join turmas
-                           on aulas.turma = turmas.id
-                           inner join professores
-                           on turma.professor = professores.id
-             group by hora_inicio,hora_fim,dia) > 1 then
-             raise exception 'O professor já possui uma aula neste mesmo horário';
-   end if;
-   return NULL;
-end;
-$$ language plpgsql;
-
---Um professor não pode ter duas turmas no mesmo horário:
---create trigger prof_duas_turmas_mesmo_horario before insert or update
---      on cursos
---       for each row
---       execute procedure prof_nao_tem_duas_turmas_mesmo_horario()
-
---Um aluno não pode ter duas disciplinas iguais no mesmo semestre (não pode estar cursando a mesma oferta da disciplina duas vezes no mesmo semestre)
--- tá escaralhado
-create or replace function aluno_nao_duas_disc_mesmo_sem() returns trigger as $$
-begin
-    IF EXISTS (SELECT * FROM ALUNOS_INSCRITOS AS AI 
-                       INNER JOIN TURMAS AS TU 
-                       ON TU.id = AI.turma AND AI.aluno = new.aluno AND AI.turma = new.turma) THEN
-              raise exception 'Um aluno não pode cursar a mesma disciplina duas vezes no mesmo semestre!';
-              return NULL;
-    end if;
-    return new;
-end;
-$$ language plpgsql;
-
-create trigger aluno_sem_disc_iguais_mesmo_sem before insert or update
-       on alunos_inscritos
-       for each row
-       execute procedure aluno_nao_duas_disc_mesmo_sem(); --ok
-       
---Uma oferta de disciplina não pode conter mais do que o número máximo permitido de alunos inscritos.
-create or replace function alunos_inscritos_na_turma() returns trigger as $$
-begin
-     if ((select vagas from ofertas where id = new.id) < (select alunos_inscritos from ofertas where id = new.id))
-        or (select vagas from ofertas where id = new.id) < new.alunos_inscritos or
-            (select alunos_inscritos from ofertas where id = new.id) > new.vagas 
-                then
-         raise exception 'A quantidade de alunos inscritos ultrapassa a quantidade de vagas na turma';
-         return NULL; 
-     end if;
-    return new;
-end;
-$$ language plpgsql; --PROCEDURE ok
-
-create trigger qte_alunos_inscritos_turma before insert or update
-       on ofertas
-       for each row
-       execute procedure alunos_inscritos_na_turma(); --ok
-
---PROCEDURE 1: ao inserir um aluno em uma oferta de uma disciplina, adicionar em um o número de alunos inscritos naquela oferta. 
+-- Ao inserir um aluno em uma oferta de uma disciplina, adicionar em um o número de alunos inscritos naquela oferta. 
 DROP FUNCTION inscreve_aluno(integer,integer);
 create or replace function inscreve_aluno(alunoIn integer, turmaIn integer) returns void as $$
 begin
   insert into alunos_inscritos(aluno, turma)
   values (alunoIn,turmaIn);
+  
   update ofertas 
   set alunos_inscritos = alunos_inscritos + 1
   where ofertas.id = (select ofertas.id from ofertas where ofertas.id = (select turmas.oferta from turmas where id = turmaIn));
 end;
 $$ language plpgsql;
 
---Um professor só pode lecionar uma turma à qual ele tenha licença para lecionar:
-create or replace function professor_da_aula_de() returns trigger as $$
-begin
-   if not exists (select disciplinas_lecionaveis.professor,disciplinas_lecionaveis.disciplina --acho que nem precisa desse join todo.
-                        from (disciplinas_lecionaveis full outer join
-                        ofertas on (ofertas.disciplina_oferecida = disciplinas_lecionaveis.disciplina)
-                        full outer join turmas on (ofertas.id = new.oferta))   
-                        where disciplinas_lecionaveis.professor = new.professor and disciplinas_lecionaveis.disciplina = 
-                                             (select disciplina_oferecida from ofertas where ofertas.id = new.oferta)) then
-                        raise exception 'O professor não pode lecionar a disciplina em questão!';
-                        return null;
-    end if;
-    return new;           
-end;
-$$ language plpgsql;
 
-create trigger professor_so_pode_dar_aula_do_que_ele_pode_dar_aula before insert or update --esse nome foi de zoas mesmo
-       on turmas
-       for each row
-       execute procedure professor_da_aula_de(); --ok
+-- Todas as turmas de um semestre
+DROP FUNCTION IF EXISTS turmas_semestre(sem char(5));
+CREATE OR REPLACE FUNCTION turmas_semestre(sem char(5)) RETURNS TABLE (
+    turma char(2),
+    professor varchar(100),
+    vagas integer,
+    inscritos integer)
+AS $$
+DECLARE
+    r record;
+BEGIN
+    FOR r IN (SELECT TUR.codigo_turma, PRO.nome, OFE.vagas, OFE.alunos_inscritos FROM TURMAS AS TUR
+              INNER JOIN OFERTAS AS OFE ON OFE.id = TUR.oferta
+              INNER JOIN PROFESSORES AS PRO ON PRO.id = TUR.professor
+              WHERE semestre = sem) LOOP
+      turma = r.codigo_turma;
+      professor = r.nome;
+      vagas = r.vagas;
+      inscritos = r.alunos_inscritos;
+      RETURN NEXT;
+    END LOOP;
+END; $$ LANGUAGE plpgsql;
 
+SELECT turmas_semestre('20171');
+SELECT * FROM OFERTAS;
