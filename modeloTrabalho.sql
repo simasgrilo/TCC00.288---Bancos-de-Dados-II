@@ -142,7 +142,35 @@ CREATE TABLE AULAS (
 );
 
 
--- PROCEDURE 1
+---------------------------------------- PROCEDURES ------------------------------------------------------
+
+-- Todas as turmas de um semestre
+DROP FUNCTION IF EXISTS turmas_semestre(sem char(5));
+CREATE OR REPLACE FUNCTION turmas_semestre(sem char(5)) RETURNS TABLE (
+    turma char(2),
+    professor varchar(100),
+    vagas integer,
+    inscritos integer)
+AS $$
+DECLARE
+    r record;
+BEGIN
+    FOR r IN (SELECT TUR.codigo_turma, PRO.nome, OFE.vagas, OFE.alunos_inscritos FROM TURMAS AS TUR
+              INNER JOIN OFERTAS AS OFE ON OFE.id = TUR.oferta
+              INNER JOIN PROFESSORES AS PRO ON PRO.id = TUR.professor
+              WHERE semestre = sem) LOOP
+      turma = r.codigo_turma;
+      professor = r.nome;
+      vagas = r.vagas;
+      inscritos = r.alunos_inscritos;
+      RETURN NEXT;
+    END LOOP;
+END; $$ LANGUAGE plpgsql;
+
+SELECT turmas_semestre('20171');
+SELECT * FROM OFERTAS;
+
+
 -- Ao inserir um aluno em uma turma, adicionar em um o número de alunos inscritos naquela turma. 
 DROP FUNCTION inscreve_aluno(integer,integer);
 create or replace function inscreve_aluno(alunoIn integer, turmaIn integer) returns void as $$
@@ -157,6 +185,94 @@ end;
 $$ language plpgsql;
 
 -------------------------------------- TRIGGERS --------------------------------------------------------------
+
+CREATE OR REPLACE FUNCTION checar_disciplina_lecionavel() RETURNS TRIGGER AS $$
+BEGIN
+    IF TG_OP = 'UPDATE' THEN
+        IF OLD.professor <> NEW.professor THEN
+            RAISE EXCEPTION 'A mudança de professor não é permitida';
+            RETURN NULL;
+        END IF;
+    END IF;
+    
+    IF EXISTS (SELECT DISTINCT OFE.disciplina_oferecida AS disciplinas_ja_lecionadas FROM TURMAS AS TUR
+               INNER JOIN OFERTAS AS OFE ON TUR.oferta = OFE.id
+               INNER JOIN DISCIPLINAS_OFERECIDAS AS DIO ON DIO.id = OFE.disciplina_oferecida
+               WHERE TUR.professor = OLD.professor AND OFE.disciplina_oferecida = OLD.disciplina)
+
+    THEN
+        RAISE EXCEPTION 'Essa disciplina já foi lecionada por este professor, sua remoção ou alteração não é permitida';
+        RETURN NULL;
+    ELSE
+        IF TG_OP = 'UPDATE' THEN
+            RETURN NEW;
+        ELSE
+            RETURN OLD;
+        END IF;
+    END IF;
+END; $$ LANGUAGE plpgsql; 
+
+CREATE TRIGGER checa_disciplina_lecionavel BEFORE UPDATE OR DELETE
+       ON DISCIPLINAS_LECIONAVEIS
+       FOR EACH ROW
+       EXECUTE PROCEDURE checar_disciplina_lecionavel();
+/*
+-- TESTES
+SELECT * FROM DISCIPLINAS_LECIONAVEIS WHERE professor = 2;
+UPDATE DISCIPLINAS_LECIONAVEIS SET disciplina = 9 WHERE professor = 2 AND disciplina = 46;
+UPDATE DISCIPLINAS_LECIONAVEIS SET professor = 9 WHERE professor = 2 AND disciplina = 46;
+DELETE FROM DISCIPLINAS_LECIONAVEIS WHERE professor = 2 AND disciplina = 46;
+*/
+
+SELECT * FROM OFERTAS AS OFE
+INNER JOIN TURMAS AS TUR ON TUR.oferta = OFE.id
+WHERE OFE.id = 5;
+
+CREATE OR REPLACE FUNCTION checar_validade_oferta() RETURNS TRIGGER AS $$
+BEGIN
+    IF EXISTS (SELECT * FROM OFERTAS AS OFE
+               INNER JOIN TURMAS AS TUR ON TUR.oferta = OFE.id
+               WHERE OFE.id = OLD.id)
+    THEN
+        IF TG_OP = 'UPDATE' THEN
+            IF (OLD.semestre <> NEW.semestre) OR (OLD.disciplina_oferecida <> NEW.disciplina_oferecida) THEN
+                RAISE EXCEPTION 'A mudança de semestre ou disciplina oferecida não é permitida pois já existem turmas associadas à essa oferta';
+                RETURN NULL;
+            ELSEIF (NEW.vagas < NEW.alunos_inscritos) OR (NEW.vagas < 10) THEN
+                RAISE EXCEPTION 'A mudança do número de vagas removerá alguns alunos inscritos pois já existe uma turma dessa oferta com alunos inscritos';
+                RETURN NULL;
+            END IF;
+            
+            RETURN NEW;
+        END IF;
+    
+        RAISE EXCEPTION 'Essa oferta já possui turmas, portanto sua remoção não é permitida';
+        RETURN NULL;
+    END IF;
+    
+    RETURN OLD;
+END; $$ LANGUAGE plpgsql;
+
+CREATE TRIGGER checa_oferta BEFORE UPDATE OR DELETE
+    ON OFERTAS
+    FOR EACH ROW
+    EXECUTE PROCEDURE checar_validade_oferta();
+    
+/*
+-- TESTES
+SELECT * FROM OFERTAS WHERE id = 5
+
+SELECT * FROM OFERTAS AS OFE
+INNER JOIN TURMAS AS TUR ON TUR.oferta = OFE.id
+WHERE OFE.id = 5
+
+UPDATE OFERTAS SET semestre = 20191 WHERE id = 5;
+UPDATE OFERTAS SET vagas = 3 WHERE id = 5;
+
+DELETE FROM OFERTAS WHERE id = 5;
+
+*/
+
 
 --Um professor não pode ser coordenador e vice_coordenador ao mesmo tempo. Além disso, um professor não pode coordenar mais de um curso ou nem ser vice de mais de um curso ao mesmo tempo.                      
 create or replace function professor_coordenador_nao_pode_ser_vice() returns trigger as $$
@@ -204,9 +320,9 @@ begin
                                                     ofertas inner join turmas on turmas.oferta = ofertas.id
                                                     inner join aulas on turmas.id = aulas.turma
                                                     where    dia = new.dia 
-							     and hora_inicio = new.hora_inicio
-							     and hora_fim    = new.hora_fim
-							     and sala        = new.sala )) then
+                                 and hora_inicio = new.hora_inicio
+                                 and hora_fim    = new.hora_fim
+                                 and sala        = new.sala )) then
                raise exception 'A sala em questão já está sendo usada para outra disciplina no mesmo horário';
                return NULL;
      end if;
@@ -503,7 +619,7 @@ BEGIN
     END LOOP;
 END;$$ LANGUAGE plpgsql;
 
-SELECT gera_alunos();
+SELECT gera_alunos();        
 SELECT * FROM ALUNOS;
 
 
@@ -587,33 +703,3 @@ END;$$ LANGUAGE plpgsql;
 
 SELECT gera_aulas();
 SELECT * FROM AULAS;
-
-
----------------------------------------- PROCEDURES ------------------------------------------------------
-
-
--- Todas as turmas de um semestre
-DROP FUNCTION IF EXISTS turmas_semestre(sem char(5));
-CREATE OR REPLACE FUNCTION turmas_semestre(sem char(5)) RETURNS TABLE (
-    turma char(2),
-    professor varchar(100),
-    vagas integer,
-    inscritos integer)
-AS $$
-DECLARE
-    r record;
-BEGIN
-    FOR r IN (SELECT TUR.codigo_turma, PRO.nome, OFE.vagas, OFE.alunos_inscritos FROM TURMAS AS TUR
-              INNER JOIN OFERTAS AS OFE ON OFE.id = TUR.oferta
-              INNER JOIN PROFESSORES AS PRO ON PRO.id = TUR.professor
-              WHERE semestre = sem) LOOP
-      turma = r.codigo_turma;
-      professor = r.nome;
-      vagas = r.vagas;
-      inscritos = r.alunos_inscritos;
-      RETURN NEXT;
-    END LOOP;
-END; $$ LANGUAGE plpgsql;
-
-SELECT turmas_semestre('20171');
-SELECT * FROM OFERTAS;
